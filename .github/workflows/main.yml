@@ -3,12 +3,12 @@ name: Pheizu Bot 24/7
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 */5 * * *' # Runs every 5 hours
+    - cron: '0 */5 * * *' 
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
-    timeout-minutes: 350 # Max ~5.8 hours to safely save state before GitHub's 6h kill
+    timeout-minutes: 350
 
     steps:
       - name: Checkout Code
@@ -26,13 +26,12 @@ jobs:
 
       - name: Run Bot
         run: timeout 5.5h npm start || true
-        # The "timeout 5.5h" forces the bot to stop after 5.5 hours.
-        # "|| true" prevents the workflow from marking as failed when it stops.
 
       - name: Save WhatsApp Session
         run: |
           git config --global user.name "GitHub Action"
           git config --global user.email "action@github.com"
-          git add auth/
-          git commit -m "Update WhatsApp Session [Skip CI]" || echo "No changes"
-          git push
+          # Force add the auth folder to ensure it's saved
+          git add auth/ -f
+          git commit -m "Auto-save WhatsApp Session [Skip CI]" || echo "No changes to save"
+          git push origin main
