@@ -8,14 +8,13 @@ const pino = require('pino');
 const SEND_OTP_URL = 'https://pheizuofficialstore.myvipsite.fun/send_otp.php';
 const API_SECRET = 'PHEIZU_SECRET_123'; 
 const BOT_NAME = 'Pheizu Store';
-
-// If you want to send the QR code to your admin settings page:
 const SETTINGS_PAGE_URL = 'https://pheizuofficialstore.myvipsite.fun/admin/settings.php';
 
 const logger = pino({ level: 'warn' });
 let sock = null;
+let qrSent = false; // <--- LOCK: Prevents sending QR repeatedly
 
-// Helper to call the PHP API
+// Helper to call the PHP OTP API
 async function callApi(action, data = {}) {
     try {
         const res = await fetch(`${SEND_OTP_URL}?action=${action}&secret=${API_SECRET}`, {
@@ -30,7 +29,7 @@ async function callApi(action, data = {}) {
     }
 }
 
-// Helper to send QR to the settings page
+// Helper to send QR to the settings page (Only called once)
 async function sendQrToSettings(qr) {
     try {
         await fetch(`${SETTINGS_PAGE_URL}?api=bot&secret=${API_SECRET}`, {
@@ -38,13 +37,13 @@ async function sendQrToSettings(qr) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ status: 'qr', qr: qr })
         });
+        console.log('[bot] QR Code sent to settings.php');
     } catch (e) {
         console.log('Could not send QR to settings page (network error).');
     }
 }
 
 async function startBot() {
-    // Save session to the './auth' folder
     const { state, saveCreds } = await useMultiFileAuthState('./auth');
     const { version } = await fetchLatestBaileysVersion();
 
@@ -52,7 +51,7 @@ async function startBot() {
         version,
         auth: state,
         logger,
-        printQRInTerminal: false, // We send it to the website instead
+        printQRInTerminal: false, 
         browser: Browsers.ubuntu('Chrome'),
     });
 
@@ -62,14 +61,16 @@ async function startBot() {
     sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
 
-        // If a QR code is generated and we are not registered yet
-        if (qr && !sock.authState.creds.registered) {
-            console.log(`[bot] QR Code generated. Sending to settings.php...`);
+        // Only send the QR code ONCE to stop spamming the website
+        if (qr && !sock.authState.creds.registered && !qrSent) {
+            qrSent = true; // Lock it
             await sendQrToSettings(qr);
         }
 
         if (connection === 'open') {
             console.log('[bot] Connected to WhatsApp successfully!');
+            qrSent = false; // Reset lock in case of future disconnects
+            
             try {
                 await fetch(`${SETTINGS_PAGE_URL}?api=bot&secret=${API_SECRET}`, {
                     method: 'POST',
@@ -90,6 +91,7 @@ async function startBot() {
             
             if (!loggedOut) {
                 console.log('[bot] Reconnecting...');
+                qrSent = false; // Reset lock to allow new QR if needed
                 startBot();
             } else {
                 console.log('[bot] You need to scan a new QR code.');
@@ -143,22 +145,19 @@ function startPollingWebsite() {
             console.log(`[bot] Found pending OTP for +${phone}. Sending...`);
 
             try {
-                // Send the OTP message
                 await sock.sendMessage(jid, { 
                     text: `*${BOT_NAME}*\n\nYour verification code is: *${otp}*\n\nValid for 10 minutes. Do not share this code.` 
                 });
                 
-                // Mark it as sent in the database so it doesn't send again
                 await callApi('mark_sent', { id });
                 console.log(`[bot] Successfully sent OTP to +${phone}`);
 
             } catch (err) {
                 console.log(`[bot] Failed to send to +${phone}:`, err.message);
-                // Mark as sent anyway so it doesn't get stuck in a loop
-                await callApi('mark_sent', { id });
+                await callApi('mark_sent', { id }); // Mark sent to prevent infinite loop
             }
         }
-    }, 5000); // Check every 5 seconds
+    }, 5000);
 }
 
 // Start the bot
