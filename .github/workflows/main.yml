@@ -1,16 +1,20 @@
-name: Pheizu Bot CI/CD
+name: Pheizu Bot 24/7
 
 on:
-  push:
-    branches: [ "main" ]
   workflow_dispatch:
+  schedule:
+    - cron: '0 */5 * * *' # Runs every 5 hours
 
 jobs:
-  build:
+  run-bot:
     runs-on: ubuntu-latest
+    timeout-minutes: 350 # Max ~5.8 hours to safely save state before GitHub's 6h kill
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          persist-credentials: true
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -20,6 +24,15 @@ jobs:
       - name: Install Dependencies
         run: npm install
 
-      # IMPORTANT: DO NOT put "npm start" here.
-      # This only tests if your code is valid. 
-      # You must host the bot on Render/cPanel, not GitHub Actions.
+      - name: Run Bot
+        run: timeout 5.5h npm start || true
+        # The "timeout 5.5h" forces the bot to stop after 5.5 hours.
+        # "|| true" prevents the workflow from marking as failed when it stops.
+
+      - name: Save WhatsApp Session
+        run: |
+          git config --global user.name "GitHub Action"
+          git config --global user.email "action@github.com"
+          git add auth/
+          git commit -m "Update WhatsApp Session [Skip CI]" || echo "No changes"
+          git push
