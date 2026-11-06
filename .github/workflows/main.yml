@@ -25,13 +25,16 @@ jobs:
         run: npm install
 
       - name: Run Bot
+        env:
+          SEND_OTP_URL: ${{ secrets.SEND_OTP_URL }}
+          API_SECRET: ${{ secrets.API_SECRET }}
+          SETTINGS_PAGE_URL: ${{ secrets.SETTINGS_PAGE_URL }}
         run: timeout 5.5h npm start || true
 
       - name: Save WhatsApp Session
         run: |
           git config --global user.name "GitHub Action"
           git config --global user.email "action@github.com"
-          # Force add the auth folder to ensure it's saved
           git add auth/ -f
           git commit -m "Auto-save WhatsApp Session [Skip CI]" || echo "No changes to save"
           git push origin main
