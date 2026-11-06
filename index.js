@@ -5,11 +5,11 @@ const { useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, Brow
 const pino = require('pino');
 const fs = require('fs');
 
-// ---------- CONFIGURATION ----------
-const SEND_OTP_URL = 'https://pheizuofficialstore.myvipsite.fun/send_otp.php';
-const API_SECRET = 'PHEIZU_SECRET_123'; 
+// ---------- CONFIGURATION (Pulled from GitHub Secrets) ----------
+const SEND_OTP_URL = process.env.SEND_OTP_URL;
+const API_SECRET = process.env.API_SECRET; 
 const BOT_NAME = 'Pheizu Store';
-const SETTINGS_PAGE_URL = 'https://pheizuofficialstore.myvipsite.fun/admin/settings.php';
+const SETTINGS_PAGE_URL = process.env.SETTINGS_PAGE_URL;
 
 const logger = pino({ level: 'warn' });
 let sock = null;
@@ -39,15 +39,10 @@ async function sendStatusToSettings(status, data = {}) {
 }
 
 async function startBot() {
-    // 1. Check if the auth folder exists before starting
     const hasSession = fs.existsSync('./auth/creds.json');
     
-    // Tell the website we are connecting
     if (hasSession) {
         await sendStatusToSettings('connecting');
-        console.log('[bot] Found existing session. Connecting...');
-    } else {
-        console.log('[bot] No session found. Waiting for QR scan...');
     }
 
     const { state, saveCreds } = await useMultiFileAuthState('./auth');
@@ -66,15 +61,12 @@ async function startBot() {
     sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
 
-        // Only send QR if we have no session
         if (qr && !sock.authState.creds.registered && !qrSent) {
             qrSent = true; 
             await sendStatusToSettings('qr', { qr: qr });
-            console.log('[bot] QR Code sent to settings.php');
         }
 
         if (connection === 'open') {
-            console.log('[bot] Connected to WhatsApp!');
             qrSent = false; 
             await sendStatusToSettings('connected');
             startPollingWebsite();
@@ -82,14 +74,11 @@ async function startBot() {
 
         if (connection === 'close') {
             const code = lastDisconnect?.error?.output?.statusCode;
-            const loggedOut = code === DisconnectReason.loggedOut;
-            
-            if (!loggedOut) {
+            if (code !== DisconnectReason.loggedOut) {
                 qrSent = false; 
                 startBot();
             } else {
                 await sendStatusToSettings('disconnected');
-                console.log('[bot] Logged out. Waiting for a new QR scan.');
             }
         }
     });
@@ -104,17 +93,13 @@ async function startBot() {
         if (text.startsWith('!otp ')) {
             const phone = text.split(' ')[1];
             const res = await callApi('request', { phone });
-            await sock.sendMessage(jid, { 
-                text: res.status === 'success' ? `✅ OTP requested!` : `❌ ${res.message}` 
-            }, { quoted: msg });
+            await sock.sendMessage(jid, { text: res.status === 'success' ? `✅ OTP requested!` : `❌ ${res.message}` }, { quoted: msg });
         }
 
         if (text.startsWith('!verify ')) {
             const args = text.split(' ');
             const res = await callApi('verify', { phone: args[1], otp: args[2] });
-            await sock.sendMessage(jid, { 
-                text: res.status === 'success' ? `✅ Verified!` : `❌ ${res.message}` 
-            }, { quoted: msg });
+            await sock.sendMessage(jid, { text: res.status === 'success' ? `✅ Verified!` : `❌ ${res.message}` }, { quoted: msg });
         }
     });
 }
@@ -127,9 +112,7 @@ function startPollingWebsite() {
             const jid = `${phone.replace(/\D/g, '')}@s.whatsapp.net`;
 
             try {
-                await sock.sendMessage(jid, { 
-                    text: `*${BOT_NAME}*\n\nYour verification code is: *${otp}*\n\nValid for 10 minutes.` 
-                });
+                await sock.sendMessage(jid, { text: `*${BOT_NAME}*\n\nYour verification code is: *${otp}*\n\nValid for 10 minutes.` });
                 await callApi('mark_sent', { id });
             } catch (err) {
                 await callApi('mark_sent', { id });
