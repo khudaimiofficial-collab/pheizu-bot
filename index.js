@@ -39,11 +39,17 @@ async function sendStatusToSettings(status, data = {}) {
 // Fetch the phone number from the website database dynamically
 async function getBotPhoneNumber() {
     try {
-        const res = await fetch(`${SETTINGS_PAGE_URL}?api=bot&secret=${API_SECRET}`);
-        const data = await res.json();
+        const url = `${SETTINGS_PAGE_URL}?api=bot&secret=${API_SECRET}`;
+        console.log(`[bot] Checking API for phone number...`);
+        
+        const res = await fetch(url);
+        const text = await res.text(); // Get raw text to catch PHP errors
+        console.log(`[bot] RAW API RESPONSE: ${text}`);
+        
+        const data = JSON.parse(text);
         return data.bot_phone || null;
     } catch (e) {
-        console.log('[bot] Failed to connect to website API to get phone number.');
+        console.log('[bot] Failed to parse API response. Is settings.php working?', e.message);
         return null;
     }
 }
@@ -73,22 +79,21 @@ async function startBot() {
 
         if (qr && !sock.authState.creds.registered) {
             
-            // Request pairing code from database
             if (!lastPairingCode) {
                 const botPhone = await getBotPhoneNumber();
+                
                 if (botPhone) {
                     try {
                         lastPairingCode = await sock.requestPairingCode(botPhone);
                         console.log(`[bot] Pairing Code Generated for +${botPhone}: ${lastPairingCode}`);
                     } catch (err) {
-                        console.log('[bot] Failed to get pairing code:', err.message);
+                        console.log('[bot] WhatsApp rejected the pairing code request:', err.message);
                     }
                 } else {
-                    console.log('[bot] No bot phone number set in admin settings. Skipping pairing code.');
+                    console.log('[bot] ERROR: Phone number is empty in the API response. Cannot generate pairing code.');
                 }
             }
             
-            // Send both QR and Pairing Code to the website
             await sendStatusToSettings('qr', { 
                 qr: qr, 
                 pairing: lastPairingCode 
@@ -96,7 +101,7 @@ async function startBot() {
         }
 
         if (connection === 'open') {
-            lastPairingCode = null; // Reset when connected
+            lastPairingCode = null; 
             await sendStatusToSettings('connected');
             startPollingWebsite();
         }
