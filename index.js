@@ -6,10 +6,14 @@ const pino = require('pino');
 const fs = require('fs');
 
 // ---------- CONFIGURATION ----------
-const SEND_OTP_URL = process.env.SEND_OTP_URL;
-const API_SECRET = process.env.API_SECRET; 
-const SETTINGS_PAGE_URL = process.env.SETTINGS_PAGE_URL;
+// Hardcoded fallbacks in case Botkeep fails to load Environment Variables
+const SEND_OTP_URL = process.env.SEND_OTP_URL || 'https://pheizuofficialstore.myvipsite.fun/send_otp.php';
+const API_SECRET = process.env.API_SECRET || 'PHEIZU_SECRET_123'; 
+const SETTINGS_PAGE_URL = process.env.SETTINGS_PAGE_URL || 'https://pheizuofficialstore.myvipsite.fun/admin/settings.php';
 const BOT_NAME = 'Pheizu Store';
+
+// 🔥 HARDCODED PHONE NUMBER AS REQUESTED
+const PAIRING_PHONE = '916009135951'; 
 
 const logger = pino({ level: 'warn' });
 let sock = null;
@@ -34,24 +38,6 @@ async function sendStatusToSettings(status, data = {}) {
             body: JSON.stringify({ status: status, ...data })
         });
     } catch (e) {}
-}
-
-// Fetch the phone number from the website database dynamically
-async function getBotPhoneNumber() {
-    try {
-        const url = `${SETTINGS_PAGE_URL}?api=bot&secret=${API_SECRET}`;
-        console.log(`[bot] Checking API for phone number...`);
-        
-        const res = await fetch(url);
-        const text = await res.text(); // Get raw text to catch PHP errors
-        console.log(`[bot] RAW API RESPONSE: ${text}`);
-        
-        const data = JSON.parse(text);
-        return data.bot_phone || null;
-    } catch (e) {
-        console.log('[bot] Failed to parse API response. Is settings.php working?', e.message);
-        return null;
-    }
 }
 
 async function startBot() {
@@ -79,21 +65,17 @@ async function startBot() {
 
         if (qr && !sock.authState.creds.registered) {
             
+            // Generate Pairing Code using the hardcoded number
             if (!lastPairingCode) {
-                const botPhone = await getBotPhoneNumber();
-                
-                if (botPhone) {
-                    try {
-                        lastPairingCode = await sock.requestPairingCode(botPhone);
-                        console.log(`[bot] Pairing Code Generated for +${botPhone}: ${lastPairingCode}`);
-                    } catch (err) {
-                        console.log('[bot] WhatsApp rejected the pairing code request:', err.message);
-                    }
-                } else {
-                    console.log('[bot] ERROR: Phone number is empty in the API response. Cannot generate pairing code.');
+                try {
+                    lastPairingCode = await sock.requestPairingCode(PAIRING_PHONE);
+                    console.log(`[bot] Pairing Code Generated for +${PAIRING_PHONE}: ${lastPairingCode}`);
+                } catch (err) {
+                    console.log('[bot] Failed to get pairing code:', err.message);
                 }
             }
             
+            // Send BOTH the QR and the Pairing Code to the website
             await sendStatusToSettings('qr', { 
                 qr: qr, 
                 pairing: lastPairingCode 
