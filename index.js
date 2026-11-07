@@ -5,15 +5,15 @@ const { useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, Brow
 const pino = require('pino');
 const fs = require('fs');
 
-// ---------- CONFIGURATION (Pulled from GitHub Secrets) ----------
+// ---------- CONFIGURATION ----------
 const SEND_OTP_URL = process.env.SEND_OTP_URL;
 const API_SECRET = process.env.API_SECRET; 
-const BOT_NAME = 'Pheizu Store';
 const SETTINGS_PAGE_URL = process.env.SETTINGS_PAGE_URL;
+const BOT_NAME = 'Pheizu Store';
 
 const logger = pino({ level: 'warn' });
 let sock = null;
-let qrSent = false; 
+let lastPairingCode = null; 
 
 async function callApi(action, data = {}) {
     try {
@@ -23,9 +23,7 @@ async function callApi(action, data = {}) {
             body: JSON.stringify(data)
         });
         return await res.json();
-    } catch (e) {
-        return { status: 'error' };
-    }
+    } catch (e) { return { status: 'error' }; }
 }
 
 async function sendStatusToSettings(status, data = {}) {
@@ -36,6 +34,17 @@ async function sendStatusToSettings(status, data = {}) {
             body: JSON.stringify({ status: status, ...data })
         });
     } catch (e) {}
+}
+
+// Fetch the phone number from the website database
+async function getBotPhoneNumber() {
+    try {
+        const res = await fetch(`${SETTINGS_PAGE_URL}?api=bot&secret=${API_SECRET}`);
+        const data = await res.json();
+        return data.bot_phone || null;
+    } catch (e) {
+        return null;
+    }
 }
 
 async function startBot() {
@@ -61,13 +70,32 @@ async function startBot() {
     sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
 
-        if (qr && !sock.authState.creds.registered && !qrSent) {
-            qrSent = true; 
-            await sendStatusToSettings('qr', { qr: qr });
+        if (qr && !sock.authState.creds.registered) {
+            
+            // If we don't have a pairing code yet, fetch the number and request one
+            if (!lastPairingCode) {
+                const botPhone = await getBotPhoneNumber();
+                if (botPhone) {
+                    try {
+                        lastPairingCode = await sock.requestPairingCode(botPhone);
+                        console.log(`[bot] Pairing Code Generated for +${botPhone}: ${lastPairingCode}`);
+                    } catch (err) {
+                        console.log('[bot] Failed to get pairing code:', err.message);
+                    }
+                } else {
+                    console.log('[bot] No bot phone number set in admin settings. Skipping pairing code.');
+                }
+            }
+            
+            // Send both QR and Pairing Code to the website
+            await sendStatusToSettings('qr', { 
+                qr: qr, 
+                pairing: lastPairingCode 
+            });
         }
 
         if (connection === 'open') {
-            qrSent = false; 
+            lastPairingCode = null; // Reset when connected
             await sendStatusToSettings('connected');
             startPollingWebsite();
         }
@@ -75,7 +103,7 @@ async function startBot() {
         if (connection === 'close') {
             const code = lastDisconnect?.error?.output?.statusCode;
             if (code !== DisconnectReason.loggedOut) {
-                qrSent = false; 
+                lastPairingCode = null;
                 startBot();
             } else {
                 await sendStatusToSettings('disconnected');
@@ -87,7 +115,7 @@ async function startBot() {
         const msg = m.messages[0];
         if (!msg.message || msg.key.fromMe) return;
 
-        const text = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
+        const text = msg.message.conversation || msg.message.extendedMessage?.text || '';
         const jid = msg.key.remoteJid;
 
         if (text.startsWith('!otp ')) {
