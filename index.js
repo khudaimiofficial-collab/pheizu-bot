@@ -36,13 +36,14 @@ async function sendStatusToSettings(status, data = {}) {
     } catch (e) {}
 }
 
-// Fetch the phone number from the website database
+// Fetch the phone number from the website database dynamically
 async function getBotPhoneNumber() {
     try {
         const res = await fetch(`${SETTINGS_PAGE_URL}?api=bot&secret=${API_SECRET}`);
         const data = await res.json();
         return data.bot_phone || null;
     } catch (e) {
+        console.log('[bot] Failed to connect to website API to get phone number.');
         return null;
     }
 }
@@ -72,7 +73,7 @@ async function startBot() {
 
         if (qr && !sock.authState.creds.registered) {
             
-            // If we don't have a pairing code yet, fetch the number and request one
+            // Request pairing code from database
             if (!lastPairingCode) {
                 const botPhone = await getBotPhoneNumber();
                 if (botPhone) {
@@ -115,7 +116,7 @@ async function startBot() {
         const msg = m.messages[0];
         if (!msg.message || msg.key.fromMe) return;
 
-        const text = msg.message.conversation || msg.message.extendedMessage?.text || '';
+        const text = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
         const jid = msg.key.remoteJid;
 
         if (text.startsWith('!otp ')) {
